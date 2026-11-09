@@ -9,7 +9,7 @@ from app.models import AuditEvent, ConnectionRef, Deployment, Job, JobRevision, 
 from app.schemas.job import JobCreate, JobPatch
 from app.security import utcnow
 from app.services.ids import new_id, slugify, spec_hash
-from app.services.sql_preview import inspect_destination, preview_source, validate_mapping
+from app.services.sql_preview import auto_map_columns, inspect_destination, preview_source, validate_mapping
 from app.services.sql_validator import SqlValidationError, format_sql, validate_select
 
 
@@ -78,6 +78,9 @@ def validate_job_payload(payload: JobCreate, preview: bool = False) -> dict[str,
         payload.destination.connection_id,
         payload.destination.schema_name,
         payload.destination.table,
+    )
+    payload.destination.column_mapping = auto_map_columns(
+        preview_result.columns, dest_cols, payload.destination.column_mapping
     )
     validate_mapping(preview_result.columns, dest_cols, payload.destination.column_mapping)
     return {

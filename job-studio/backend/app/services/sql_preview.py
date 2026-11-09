@@ -57,7 +57,7 @@ def preview_source(connection_id: str, sql_text: str) -> PreviewResult:
     conn = _connect(dsn, timeout)
     try:
         conn.execute("SET TRANSACTION READ ONLY")
-        conn.execute("SET TIME ZONE %s", ("Asia/Tehran",))
+        conn.execute("SET TIME ZONE 'Asia/Tehran'")
         conn.execute(f"SET statement_timeout = {int(timeout * 1000)}")
         conn.execute("SET lock_timeout = 5000")
         with conn.cursor() as cur:
@@ -108,7 +108,7 @@ def inspect_destination(connection_id: str, schema: str, table: str) -> list[Col
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT column_name, data_type
+                SELECT column_name, data_type, is_nullable, column_default
                 FROM information_schema.columns
                 WHERE table_schema = %s AND table_name = %s
                 ORDER BY ordinal_position
@@ -120,19 +120,67 @@ def inspect_destination(connection_id: str, schema: str, table: str) -> list[Col
                 raise SqlValidationError(
                     f"Destination table {schema}.{table} was not found"
                 )
-            return [ColumnInfo(name=name, type=dtype) for name, dtype in rows]
+            return [
+                ColumnInfo(
+                    name=name,
+                    type=dtype,
+                    nullable=nullable == "YES",
+                    has_default=default is not None,
+                )
+                for name, dtype, nullable, default in rows
+            ]
     finally:
         conn.close()
+
+
+SKIP_DEST_COLUMNS = {"updated_at"}
+
+
+def auto_map_columns(source_cols: list[ColumnInfo], dest_cols: list[ColumnInfo], mapping: dict[str, str] | None = None) -> dict[str, str]:
+    source_names = {col.name for col in source_cols}
+    dest_names = {col.name for col in dest_cols}
+    cleaned = {
+        src: dst
+        for src, dst in (mapping or {}).items()
+        if src in source_names and dst in dest_names and dst not in SKIP_DEST_COLUMNS
+    }
+    mapped_dest = set(cleaned.values())
+    for col in source_cols:
+        if col.name in dest_names and col.name not in SKIP_DEST_COLUMNS and col.name not in mapped_dest:
+            cleaned[col.name] = col.name
+            mapped_dest.add(col.name)
+    return cleaned
+
+
+def required_destination_columns(dest_cols: list[ColumnInfo]) -> list[str]:
+    return [
+        col.name
+        for col in dest_cols
+        if not col.nullable and not col.has_default and col.name not in SKIP_DEST_COLUMNS
+    ]
 
 
 def validate_mapping(source_cols: list[ColumnInfo], dest_cols: list[ColumnInfo], mapping: dict[str, str]) -> None:
     source_by = {col.name: col for col in source_cols}
     dest_by = {col.name: col for col in dest_cols}
+    if not mapping:
+        raise SqlValidationError("No query columns match the destination table")
     for src, dst in mapping.items():
         if src not in source_by:
-            raise SqlValidationError(f"Source column {src} is not in the query result")
+            raise SqlValidationError(
+                f"Source column {src} is not in the query result. "
+                f"The SELECT returns: {', '.join(source_by)}"
+            )
         if dst not in dest_by:
             raise SqlValidationError(f"Destination column {dst} does not exist")
+    missing = [name for name in required_destination_columns(dest_cols) if name not in mapping.values()]
+    if missing:
+        required = required_destination_columns(dest_cols)
+        raise SqlValidationError(
+            "This query cannot load into the destination table. "
+            f"Missing required columns: {', '.join(missing)}. "
+            f"Add them to the SELECT. Required: {', '.join(required)}."
+        )
 
 
 def test_connection(connection_id: str, capability: str) -> None:

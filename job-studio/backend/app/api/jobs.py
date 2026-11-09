@@ -85,25 +85,30 @@ def patch(
 
 @router.post("/validate")
 def validate(payload: ValidateRequest, _: User = Depends(require_editor)):
+    from app.services.sql_preview import auto_map_columns, required_destination_columns
+
     validate_select(payload.source.sql)
     formatted = format_sql(payload.source.sql)
     preview = preview_source(payload.source.connection_id, payload.source.sql) if payload.preview else None
     dest_cols = None
+    mapping: dict[str, str] = {}
+    required: list[str] = []
     if payload.destination:
         dest_cols = inspect_destination(
             payload.destination.connection_id,
             payload.destination.schema_name,
             payload.destination.table,
         )
-        if payload.destination.column_mapping and preview:
-            from app.services.sql_preview import validate_mapping
-
-            validate_mapping(preview.columns, dest_cols, payload.destination.column_mapping)
+        required = required_destination_columns(dest_cols)
+        if preview:
+            mapping = auto_map_columns(preview.columns, dest_cols, payload.destination.column_mapping)
     return {
         "ok": True,
         "formatted_sql": formatted,
         "preview": preview.model_dump() if preview else None,
         "destination_columns": [col.model_dump() for col in dest_cols] if dest_cols else None,
+        "column_mapping": mapping,
+        "required_destination_columns": required,
     }
 
 

@@ -12,6 +12,8 @@ class ErrorBody(BaseModel):
 class ColumnInfo(BaseModel):
     name: str
     type: str
+    nullable: bool = True
+    has_default: bool = False
 
 
 class PreviewResult(BaseModel):

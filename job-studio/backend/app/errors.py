@@ -49,3 +49,10 @@ def register_errors(app: FastAPI) -> None:
             status_code=exc.status_code,
             content={"error_type": exc.error_type, "message": exc.message},
         )
+
+    @app.exception_handler(Exception)
+    async def unhandled(_: Request, exc: Exception):
+        return JSONResponse(
+            status_code=500,
+            content={"error_type": "internal_error", "message": "Unexpected server error"},
+        )

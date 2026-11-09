@@ -26,7 +26,7 @@ class DestinationConfig(BaseModel):
     schema_name: str = Field(alias="schema", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     table: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     create_table: bool = False
-    column_mapping: dict[str, str]
+    column_mapping: dict[str, str] = Field(default_factory=dict)
 
     model_config = {"populate_by_name": True}
 
@@ -36,12 +36,10 @@ class DestinationConfig(BaseModel):
         import re
 
         ident = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-        if not value:
-            raise ValueError("column_mapping is required")
-        for src, dst in value.items():
+        for src, dst in (value or {}).items():
             if not ident.match(src) or not ident.match(dst):
                 raise ValueError("column mapping keys/values must be identifiers")
-        return value
+        return value or {}
 
 
 class LoadConfig(BaseModel):

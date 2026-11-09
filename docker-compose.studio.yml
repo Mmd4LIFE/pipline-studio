@@ -97,6 +97,8 @@ services:
     restart: unless-stopped
     environment:
       API_INTERNAL_URL: http://studio-api:8000
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
     ports:
       - "127.0.0.1:8096:3000"
     networks:
